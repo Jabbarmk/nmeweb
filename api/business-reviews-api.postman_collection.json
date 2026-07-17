@@ -1,0 +1,86 @@
+{
+  "info": {
+    "name": "NME - Business Reviews API (v2)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "nme-business-reviews-api-v1",
+    "description": "New for v2 — the equivalent v1 endpoints (post_review/reply_review/get_reviews in Api.php) have never worked: every query references a buisiness_id column that doesn't exist on the `reviews` table (which only has product_id — unrelated leftover e-commerce schema). Confirmed broken on production. Not touched.\n\nThis API uses a fresh `business_reviews` table properly tied to `smart_update` (business) via `business_id`. Post Review is JWT-authenticated — user_id comes from the token, not the request body, unlike v1's design which trusted a client-supplied user_id with no real auth check. One review per user per business is enforced at both the application and database level (unique key on business_id+user_id).\n\nAdmin-reply functionality (v1's reply_review) was intentionally not built for v2 — v1's admin gate was already dead code (checked an is_admin session key that's never set anywhere in the codebase), and admin actions belong in the existing admin-panel auth system, not this JWT-based mobile API."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{jwt_token}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost/nme-api", "type": "string" },
+    { "key": "jwt_token", "value": "", "type": "string", "description": "Obtain via api/v2/email_verify_otp — see the API v2 collection's Auth folder." }
+  ],
+  "item": [
+    {
+      "name": "Post Review",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/v2/post_review",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v2", "post_review"]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "business_id", "value": "1", "type": "text", "description": "Required. Integer — id of the business (smart_update.id) being reviewed." },
+            { "key": "rating", "value": "5", "type": "text", "description": "Required. Integer 1-5." },
+            { "key": "review", "value": "Great service, highly recommend!", "type": "text", "description": "Optional. Free text." }
+          ]
+        },
+        "description": "Requires Authorization: Bearer <jwt>. user_id is taken from the token, not the request body. Rejects a second review from the same user on the same business."
+      },
+      "response": [
+        { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Review added successfully\"\n}" },
+        { "name": "Already Reviewed", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"You have already reviewed this business\"\n}" },
+        { "name": "Business Not Found", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Business not found\"\n}" },
+        { "name": "Invalid Rating", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"errors\": \"<p>The Rating field must contain a number less than or equal to 5.</p>\\n\"\n}" },
+        { "name": "Missing Fields", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"errors\": \"<p>The Business field is required.</p>\\n<p>The Rating field is required.</p>\\n\"\n}" },
+        { "name": "No Token", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Valid Authorization: Bearer <token> required\"\n}" }
+      ]
+    },
+    {
+      "name": "Get Reviews",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "auth": { "type": "noauth" },
+        "url": {
+          "raw": "{{base_url}}/api/v2/get_reviews/1",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v2", "get_reviews", "1"]
+        },
+        "description": "Public — no auth needed. Returns average rating, total review count, and the full review list for a business."
+      },
+      "response": [
+        {
+          "name": "Success",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"Reviews fetched successfully\",\n  \"data\": {\n    \"average_rating\": 4.5,\n    \"total_reviews\": 2,\n    \"reviews\": [\n      {\n        \"id\": \"1\",\n        \"business_id\": \"1\",\n        \"user_id\": \"33\",\n        \"rating\": \"5\",\n        \"review\": \"Great service!\",\n        \"admin_reply\": \"\",\n        \"status\": \"1\",\n        \"created_at\": \"2026-07-16 15:53:47\",\n        \"updated_at\": \"\",\n        \"user_full_name\": \"\"\n      }\n    ]\n  }\n}"
+        },
+        {
+          "name": "No Reviews Yet",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"Reviews fetched successfully\",\n  \"data\": {\n    \"average_rating\": 0,\n    \"total_reviews\": 0,\n    \"reviews\": []\n  }\n}"
+        },
+        {
+          "name": "Missing Business Id",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"message\": \"Business id required\"\n}"
+        }
+      ]
+    }
+  ]
+}

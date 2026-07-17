@@ -1,0 +1,178 @@
+{
+  "info": {
+    "name": "NME - Email OTP Login API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "nme-email-otp-api-v1"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost/nme-api",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Email Register OTP",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/email_register_otp",
+          "host": ["{{base_url}}"],
+          "path": ["api", "email_register_otp"]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "email", "value": "newuser@example.com", "type": "text", "description": "Required. Must NOT already belong to an existing user." }
+          ]
+        },
+        "description": "Step 1 of registering a brand-new account by email. Sends a 6-digit OTP to the email (valid 5 minutes) using the SMTP settings configured in the app_settings dashboard. Fails if the email is already registered — use Email Login OTP instead in that case."
+      },
+      "response": [
+        {
+          "name": "OTP Sent",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"OTP sent to email\"\n}"
+        },
+        {
+          "name": "Email Already Registered",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"message\": \"Email already registered, please login\"\n}"
+        },
+        {
+          "name": "Invalid Email",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"message\": \"Invalid email address\"\n}"
+        },
+        {
+          "name": "Email Send Failed",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"message\": \"Email send failed. Check application logs.\"\n}"
+        },
+        {
+          "name": "Missing Field",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"msg\": [\"email is required!\"]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Email Login OTP",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/email_login_otp",
+          "host": ["{{base_url}}"],
+          "path": ["api", "email_login_otp"]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "email", "value": "existinguser@example.com", "type": "text", "description": "Required. Must belong to an existing user." }
+          ]
+        },
+        "description": "Step 1 of logging in with an existing account by email. Sends a 6-digit OTP to the email (valid 5 minutes). Fails if the email is not registered — use Email Register OTP instead in that case."
+      },
+      "response": [
+        {
+          "name": "OTP Sent",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"OTP sent to email\"\n}"
+        },
+        {
+          "name": "Email Not Registered",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"message\": \"Email not registered, please register\"\n}"
+        },
+        {
+          "name": "Email Send Failed",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"message\": \"Email send failed. Check application logs.\"\n}"
+        },
+        {
+          "name": "Missing Field",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"msg\": [\"email is required!\"]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Email Verify OTP",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/email_verify_otp",
+          "host": ["{{base_url}}"],
+          "path": ["api", "email_verify_otp"]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "email", "value": "newuser@example.com", "type": "text", "description": "Required. Same email used in the register/login OTP request." },
+            { "key": "otp", "value": "123456", "type": "text", "description": "Required. The 6-digit code received by email." }
+          ]
+        },
+        "description": "Step 2: verifies the OTP sent by either Email Register OTP or Email Login OTP. On success, sets the session user_id (so get_my_businesses/get_my_jobs/get_my_offers/get_my_applied_jobs work immediately after) and either creates the new account (if this was a register-flow OTP) or logs into the existing account (if this was a login-flow OTP). OTP expires 5 minutes after being sent and is single-use."
+      },
+      "response": [
+        {
+          "name": "Registration Successful (new account created)",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"Registration successful\",\n  \"data\": {\n    \"id\": \"33\",\n    \"fullName\": \"\",\n    \"userName\": \"\",\n    \"mobile\": \"\",\n    \"password\": \"\",\n    \"email\": \"newuser@example.com\",\n    \"whatsapp\": \"\",\n    \"userImage\": \"\",\n    \"imagePermition\": \"1\",\n    \"imgLimit\": \"1\",\n    \"classification_limit\": \"0\",\n    \"Latitude\": \"\",\n    \"Longitude\": \"\",\n    \"dt_created\": \"2026-07-07 07:15:50\"\n  }\n}"
+        },
+        {
+          "name": "Login Successful (existing account)",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"Login successful\",\n  \"data\": {\n    \"id\": \"33\",\n    \"fullName\": \"\",\n    \"userName\": \"\",\n    \"mobile\": \"\",\n    \"password\": \"\",\n    \"email\": \"existinguser@example.com\",\n    \"whatsapp\": \"\",\n    \"userImage\": \"\",\n    \"imagePermition\": \"1\",\n    \"imgLimit\": \"1\",\n    \"classification_limit\": \"0\",\n    \"Latitude\": \"\",\n    \"Longitude\": \"\",\n    \"dt_created\": \"2026-07-07 07:15:50\"\n  }\n}"
+        },
+        {
+          "name": "Invalid OTP",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"message\": \"Invalid OTP\"\n}"
+        },
+        {
+          "name": "OTP Expired",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"message\": \"OTP expired, please request a new one\"\n}"
+        },
+        {
+          "name": "Missing Field",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"msg\": [\"email is required!\", \"otp is required!\"]\n}"
+        }
+      ]
+    }
+  ]
+}

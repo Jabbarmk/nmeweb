@@ -1,0 +1,646 @@
+{
+  "info": {
+    "name": "NME - API v2 (JWT)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "nme-api-v2-jwt-v1",
+    "description": "## Migrating the app from v1 to v2\n\nv2 is a parallel API for the new app — v1 (api/*) is untouched and keeps working exactly as before for the live app. Every v2 request/response field is identical to its v1 counterpart; only the URL and the auth mechanism change.\n\n**1. URL:** insert `v2/` after `api/` — e.g. `api/get_my_jobs` -> `api/v2/get_my_jobs`.\n\n**2. Login screen:** replaced entirely. v1 used username/password; v2 uses email + OTP:\n- New user -> `email_register_otp` (email). Returning user -> `email_login_otp` (email) — fails if the email isn't already registered.\n- User enters the 6-digit code they received -> `email_verify_otp` (email, otp). The response now includes a `token` field (JWT) alongside the existing `data` user object.\n\n**3. Stop relying on cookies.** v1 used a session cookie set automatically by the HTTP client. v2 has no cookies at all — save `token` from `email_verify_otp` into secure storage (Keychain / Keystore / equivalent).\n\n**4. Attach the token to every v2 request** (except the 3 email OTP endpoints and `get_business/{id}`, which is public on both versions):\n```\nAuthorization: Bearer <token>\n```\nThis collection does it for you automatically via the Bearer auth configured at the collection level, driven by the `{{jwt_token}}` variable — which the Email Verify OTP request's Tests script auto-fills on a successful response.\n\n**5. Handle expiry (30 days).** There's no HTTP 401 — like the rest of this API, v2 always returns 200 with a JSON body. Watch for:\n```json\n{\"status\": 0, \"message\": \"Valid Authorization: Bearer <token> required\"}\n```\nWhen you see that, clear the stored token and send the user back to the email-OTP login screen rather than retrying the request."
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{jwt_token}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost/nme-api", "type": "string" },
+    { "key": "jwt_token", "value": "", "type": "string", "description": "Auto-filled by the Email Verify OTP request's Tests script on success." }
+  ],
+  "item": [
+    {
+      "name": "Auth (Email OTP)",
+      "item": [
+        {
+          "name": "Email Register OTP",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": {
+              "raw": "{{base_url}}/api/v2/email_register_otp",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v2", "email_register_otp"]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "email", "value": "newuser@example.com", "type": "text", "description": "Required. Must NOT already belong to an existing user." }
+              ]
+            },
+            "description": "Step 1 of registering a brand-new account. Sends a 6-digit OTP (valid 5 minutes) via the SMTP settings in the app_settings dashboard. Fails if the email is already registered — use Email Login OTP instead."
+          },
+          "response": [
+            { "name": "OTP Sent", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"OTP sent to email\"\n}" },
+            { "name": "Email Already Registered", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Email already registered, please login\"\n}" }
+          ]
+        },
+        {
+          "name": "Email Login OTP",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": {
+              "raw": "{{base_url}}/api/v2/email_login_otp",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v2", "email_login_otp"]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "email", "value": "existinguser@example.com", "type": "text", "description": "Required. Must belong to an existing user." }
+              ]
+            },
+            "description": "Step 1 of logging into an existing account. Sends a 6-digit OTP (valid 5 minutes). Fails if the email is not registered — use Email Register OTP instead."
+          },
+          "response": [
+            { "name": "OTP Sent", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"OTP sent to email\"\n}" },
+            { "name": "Email Not Registered", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Email not registered, please register\"\n}" }
+          ]
+        },
+        {
+          "name": "Email Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.status === 1 && body.token) {",
+                  "        pm.collectionVariables.set('jwt_token', body.token);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": {
+              "raw": "{{base_url}}/api/v2/email_verify_otp",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v2", "email_verify_otp"]
+            },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "email", "value": "newuser@example.com", "type": "text", "description": "Required. Same email used in the register/login OTP request." },
+                { "key": "otp", "value": "123456", "type": "text", "description": "Required. The 6-digit code received by email." }
+              ]
+            },
+            "description": "Step 2: verifies the OTP. On success, returns a JWT in the 'token' field — this request's Tests script auto-saves it into the {{jwt_token}} collection variable, so every other request in this collection (which inherits Bearer auth) works immediately after. Token is valid 30 days. Either creates the account (register flow) or logs into the existing one (login flow), depending on which OTP request preceded this call."
+          },
+          "response": [
+            { "name": "Registration Successful", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Registration successful\",\n  \"data\": { \"id\": \"35\", \"email\": \"newuser@example.com\", \"...\": \"...\" },\n  \"token\": \"<JWT-issued-on-success-see-Tests-script>\"\n}" },
+            { "name": "Login Successful", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Login successful\",\n  \"data\": { \"id\": \"35\", \"email\": \"existinguser@example.com\", \"...\": \"...\" },\n  \"token\": \"<JWT-issued-on-success-see-Tests-script>\"\n}" },
+            { "name": "Invalid OTP", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Invalid OTP\"\n}" },
+            { "name": "OTP Expired", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"OTP expired, please request a new one\"\n}" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Profile",
+      "item": [
+        {
+          "name": "Get My Businesses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/get_my_businesses", "host": ["{{base_url}}"], "path": ["api", "v2", "get_my_businesses"] },
+            "description": "Requires Authorization: Bearer <jwt>."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"count\": 1,\n  \"data\": [ { \"id\": \"22714\", \"businessName\": \"...\" } ]\n}" },
+            { "name": "Unauthorized", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Valid Authorization: Bearer <token> required\"\n}" }
+          ]
+        },
+        {
+          "name": "Get My Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/get_my_jobs", "host": ["{{base_url}}"], "path": ["api", "v2", "get_my_jobs"] },
+            "description": "Requires Authorization: Bearer <jwt>. Returns jobs whose business_id belongs to a business you own."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"count\": 0,\n  \"data\": []\n}" }
+          ]
+        },
+        {
+          "name": "Get My Offers",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/get_my_offers", "host": ["{{base_url}}"], "path": ["api", "v2", "get_my_offers"] },
+            "description": "Requires Authorization: Bearer <jwt>. Returns offers belonging to a business you own."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"count\": 0,\n  \"data\": []\n}" }
+          ]
+        },
+        {
+          "name": "Get My Applied Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/get_my_applied_jobs", "host": ["{{base_url}}"], "path": ["api", "v2", "get_my_applied_jobs"] },
+            "description": "Requires Authorization: Bearer <jwt>. Returns jobs you've applied to."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"count\": 0,\n  \"data\": []\n}" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Business",
+      "item": [
+        {
+          "name": "Add Business",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/add_business", "host": ["{{base_url}}"], "path": ["api", "v2", "add_business"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "business_name", "value": "Acme Tailors", "type": "text", "description": "Required" },
+                { "key": "category_id", "value": "1", "type": "text", "description": "Required. Integer" },
+                { "key": "subcategory_id", "value": "1", "type": "text", "description": "Optional" },
+                { "key": "description", "value": "Custom suits and tailoring", "type": "text", "description": "Optional" },
+                { "key": "highlights", "value": "Same-day service", "type": "text", "description": "Optional" },
+                { "key": "keywords", "value": "suits, tailoring", "type": "text", "description": "Optional" },
+                { "key": "opening_time", "value": "09:00", "type": "text", "description": "Optional" },
+                { "key": "closing_time", "value": "21:00", "type": "text", "description": "Optional" },
+                { "key": "contact_number", "value": "0501234567", "type": "text", "description": "Optional" },
+                { "key": "whatsapp_number", "value": "0501234567", "type": "text", "description": "Optional" },
+                { "key": "address", "value": "Dubai, UAE", "type": "text", "description": "Optional" },
+                { "key": "latitude", "value": "25.2048", "type": "text", "description": "Optional" },
+                { "key": "longitude", "value": "55.2708", "type": "text", "description": "Optional" },
+                { "key": "email", "value": "contact@acme.com", "type": "text", "description": "Optional" },
+                { "key": "instagram", "value": "https://instagram.com/acme", "type": "text", "description": "Optional" },
+                { "key": "facebook", "value": "https://facebook.com/acme", "type": "text", "description": "Optional" },
+                { "key": "website", "value": "https://acme.com", "type": "text", "description": "Optional" },
+                { "key": "logo", "type": "file", "src": "", "disabled": true, "description": "Optional. jpg|jpeg|png|webp|gif" }
+              ]
+            },
+            "description": "Requires Authorization: Bearer <jwt>."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Business added successfully\",\n  \"business_id\": 22714\n}" }
+          ]
+        },
+        {
+          "name": "Update Business",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/update_business/1", "host": ["{{base_url}}"], "path": ["api", "v2", "update_business", "1"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "business_name", "value": "Acme Tailors Updated", "type": "text", "description": "Required" },
+                { "key": "category_id", "value": "1", "type": "text", "description": "Required" },
+                { "key": "logo", "type": "file", "src": "", "disabled": true, "description": "Optional — only replaces existing logo if sent" }
+              ]
+            },
+            "description": "Requires Authorization: Bearer <jwt> AND that the token's user owns this business. Sets dt_updated automatically; dt_created is never touched."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Business updated successfully\"\n}" },
+            { "name": "Unauthorized (not the owner)", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Unauthorized\"\n}" }
+          ]
+        },
+        {
+          "name": "Get Business",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/get_business/1", "host": ["{{base_url}}"], "path": ["api", "v2", "get_business", "1"] },
+            "description": "Public, no auth required — returns a single business by id, with photos."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"data\": { \"id\": \"1\", \"businessName\": \"...\", \"photos\": [] }\n}" }
+          ]
+        },
+        {
+          "name": "Add Business Photos",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/add_business_photos/1", "host": ["{{base_url}}"], "path": ["api", "v2", "add_business_photos", "1"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "photos[]", "type": "file", "src": "", "description": "One or more image files. jpg|jpeg|png|webp|gif. Max 8 photos total per business." }
+              ]
+            },
+            "description": "Requires Authorization: Bearer <jwt> AND that the token's user owns this business."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"1 photo(s) uploaded\",\n  \"uploaded\": [\"biz_1_1234567890_0.jpg\"]\n}" }
+          ]
+        },
+        {
+          "name": "Delete Business Photo",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/delete_business_photo/1", "host": ["{{base_url}}"], "path": ["api", "v2", "delete_business_photo", "1"] },
+            "description": "Requires Authorization: Bearer <jwt> AND that the token's user owns the business this photo belongs to."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Photo deleted\"\n}" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Jobs",
+      "item": [
+        {
+          "name": "Create Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/create_job", "host": ["{{base_url}}"], "path": ["api", "v2", "create_job"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "business_id", "value": "22714", "type": "text", "description": "Optional. If sent, must belong to the JWT's user — else \"Invalid business_id\"." },
+                { "key": "job_title", "value": "Software Engineer", "type": "text", "description": "Required" },
+                { "key": "job_description", "value": "Full job description here", "type": "text", "description": "Required" },
+                { "key": "company_name", "value": "Acme Corp", "type": "text", "description": "Required" },
+                { "key": "vacancies", "value": "3", "type": "text", "description": "Required. Integer > 0" },
+                { "key": "category_id", "value": "1", "type": "text", "description": "Required" },
+                { "key": "subcategory_id", "value": "1", "type": "text", "description": "Required" },
+                { "key": "applicant_limit", "value": "100", "type": "text", "description": "Required" },
+                { "key": "time_limit", "value": "30", "type": "text", "description": "Required. Days" },
+                { "key": "contact_name", "value": "John Doe", "type": "text", "description": "Required" },
+                { "key": "phone", "value": "0501234567", "type": "text", "description": "Required. 10-15 digits" },
+                { "key": "email", "value": "hr@acme.com", "type": "text", "description": "Required" },
+                { "key": "whatsapp", "value": "0501234567", "type": "text", "description": "Required. 10-15 digits" },
+                { "key": "address", "value": "Dubai, UAE", "type": "text", "description": "Required" },
+                { "key": "collar_type", "value": "white_collar", "type": "text", "description": "Required. white_collar | blue_collar" }
+              ]
+            },
+            "description": "Requires Authorization: Bearer <jwt>."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Job created successfully\",\n  \"job_id\": 12\n}" }
+          ]
+        },
+        {
+          "name": "Update Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/update_job/1", "host": ["{{base_url}}"], "path": ["api", "v2", "update_job", "1"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "job_title", "value": "Senior Software Engineer", "type": "text" },
+                { "key": "job_description", "value": "Updated description", "type": "text" },
+                { "key": "company_name", "value": "Acme Corp", "type": "text" },
+                { "key": "vacancies", "value": "5", "type": "text" },
+                { "key": "category_id", "value": "1", "type": "text" },
+                { "key": "subcategory_id", "value": "1", "type": "text" },
+                { "key": "applicant_limit", "value": "50", "type": "text" },
+                { "key": "time_limit", "value": "15", "type": "text" },
+                { "key": "contact_name", "value": "Jane Doe", "type": "text" },
+                { "key": "phone", "value": "0509876543", "type": "text" },
+                { "key": "email", "value": "hr@acme.com", "type": "text" },
+                { "key": "whatsapp", "value": "0509876543", "type": "text" },
+                { "key": "address", "value": "Abu Dhabi, UAE", "type": "text" },
+                { "key": "collar_type", "value": "white_collar", "type": "text" }
+              ]
+            },
+            "description": "Requires Authorization: Bearer <jwt> AND that the job's business belongs to the token's user."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Job updated successfully\"\n}" },
+            { "name": "Unauthorized", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Unauthorized\"\n}" }
+          ]
+        },
+        {
+          "name": "Delete Job",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/delete_job/1", "host": ["{{base_url}}"], "path": ["api", "v2", "delete_job", "1"] },
+            "description": "Requires Authorization: Bearer <jwt> AND that the job's business belongs to the token's user."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Job deleted successfully\"\n}" }
+          ]
+        },
+        {
+          "name": "Apply Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/apply_job", "host": ["{{base_url}}"], "path": ["api", "v2", "apply_job"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "job_id", "value": "12", "type": "text", "description": "Required" },
+                { "key": "collar_type", "value": "white_collar", "type": "text", "description": "Required. Must match the job's collar_type" },
+                { "key": "full_name", "value": "Arunvijay", "type": "text", "description": "Required" },
+                { "key": "contact_number", "value": "0501234567", "type": "text", "description": "Required. 10-15 digits" },
+                { "key": "email", "value": "arun@example.com", "type": "text", "description": "Required" },
+                { "key": "address", "value": "123 Main St, Dubai, UAE", "type": "text", "description": "Required" },
+                { "key": "resume", "type": "file", "src": "", "description": "Required. PDF, DOC or DOCX, max 2MB" },
+                { "key": "confirm_terms", "value": "1", "type": "text", "description": "White collar only — required" },
+                { "key": "cover_letter", "value": "I am excited to apply for this position...", "type": "text", "description": "White collar only — optional" },
+                { "key": "portfolio", "value": "https://myportfolio.com", "type": "text", "description": "White collar only — optional" },
+                { "key": "applicant_experience", "value": "2 years in Plumbing", "type": "text", "description": "Blue collar only — optional free text" },
+                { "key": "save_profile", "value": "1", "type": "text", "description": "Optional. 1 = save profile for future jobs" }
+              ]
+            },
+            "description": "Requires Authorization: Bearer <jwt>."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Application submitted successfully\",\n  \"application_id\": 5\n}" },
+            { "name": "Already Applied", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"You have already applied for this job\"\n}" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Business Browse (public, no auth)",
+      "item": [
+        {
+          "name": "List/Search Businesses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": {
+              "raw": "{{base_url}}/api/v2/list_businesses?category_id=&subcategory_id=&term=&page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v2", "list_businesses"],
+              "query": [
+                { "key": "category_id", "value": "", "description": "Optional. Filter by main category id (from getService)." },
+                { "key": "subcategory_id", "value": "", "description": "Optional. Filter by subcategory id (from getSubService)." },
+                { "key": "term", "value": "", "description": "Optional. Search businessName / dealWith." },
+                { "key": "page", "value": "1", "description": "Optional. Default 1." },
+                { "key": "limit", "value": "20", "description": "Optional. Default 20, capped at 50." }
+              ]
+            },
+            "description": "Public — no auth needed. Paginated business listing/search — all filters optional and combinable. New for v2, not a port of v1's GetBusinessAll/homeSearch: those do a per-business photo subquery (N+1) that times out unfiltered at full scale (21k+ businesses). This one returns only the main image (full photo gallery is on Get Business detail), so it stays fast at any scale — verified at 902 businesses (category_id=30) in ~0.35s. Only status=1 (active) businesses are returned."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Businesses fetched successfully\",\n  \"page\": 1,\n  \"limit\": 20,\n  \"total\": 902,\n  \"total_pages\": 46,\n  \"data\": [\n    {\n      \"id\": \"1\",\n      \"businessName\": \"Example Tailors\",\n      \"dealWith\": \"Custom suits\",\n      \"location\": \"Example City\",\n      \"mobileNumber\": \"0000000000\",\n      \"whatsappNumber\": \"0000000000\",\n      \"serviceId\": \"30\",\n      \"sub_service_id\": \"7303\",\n      \"image\": \"https://api.nmeapp.in/public/upload/master/example.jpg\",\n      \"status\": \"1\",\n      \"dt_created\": \"2026-06-02 22:26:28\",\n      \"service_name\": \"Shopping\",\n      \"subServiceName\": \"Groom Store\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Service (Main Categories)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/getService", "host": ["{{base_url}}"], "path": ["api", "v2", "getService"] },
+            "description": "Public — no auth needed. All 60 main business categories. Use the returned id as category_id / cat_id in List/Search Businesses and Get Sub Service."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"data\": [\n    {\n      \"id\": \"30\",\n      \"service_name\": \"Shopping\",\n      \"image\": \"https://api.nmeapp.in/public/upload/service/example.png\",\n      \"orderBy\": \"0\",\n      \"dt_created\": \"2026-06-02 22:26:27\",\n      \"business_count\": 902\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Sub Service (Subcategories)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/getSubService", "host": ["{{base_url}}"], "path": ["api", "v2", "getSubService"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "cat_id", "value": "30", "type": "text", "description": "Required. Main category id, from Get Service." }
+              ]
+            },
+            "description": "Public — no auth needed. Subcategories for one main category, plus category banner image URLs."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Category Data\",\n  \"data\": [\n    {\n      \"id\": \"7740\",\n      \"service_id\": \"30\",\n      \"service_name\": \"Baking Essentials\",\n      \"image\": \"https://api.nmeapp.in/public/upload/subservice/example.png\",\n      \"Thumbnailimage\": \"\",\n      \"service_type\": \"\",\n      \"featured\": \"0\",\n      \"sort_order\": \"0\",\n      \"dt_created\": \"2026-06-02 22:26:43\",\n      \"business_count\": 3\n    }\n  ]\n}"
+            },
+            { "name": "Missing cat_id", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"msg\": [\"cat_id is required!\"]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Sub Service V1 (by location)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/getSubServiceV1", "host": ["{{base_url}}"], "path": ["api", "v2", "getSubServiceV1"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "cat_id", "value": "30", "type": "text", "description": "Required." },
+                { "key": "Latitude", "value": "25.2048", "type": "text", "description": "Required." },
+                { "key": "Longitude", "value": "55.2708", "type": "text", "description": "Required." }
+              ]
+            },
+            "description": "Public — no auth needed. Same as Get Sub Service, with location-based sorting/filtering."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"data\": []\n}" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Jobs & Offers Browse (public, no auth)",
+      "item": [
+        {
+          "name": "List Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/list_jobs", "host": ["{{base_url}}"], "path": ["api", "v2", "list_jobs"] },
+            "description": "Public — no auth needed. Lists every published job (not scoped to any user)."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"data\": [ { \"id\": \"12\", \"job_title\": \"Software Engineer\", \"...\": \"...\" } ]\n}" }
+          ]
+        },
+        {
+          "name": "Get Job Categories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/get_job_categories", "host": ["{{base_url}}"], "path": ["api", "v2", "get_job_categories"] },
+            "description": "Public — no auth needed."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"data\": [ { \"id\": \"1\", \"category_name\": \"IT\" } ]\n}" }
+          ]
+        },
+        {
+          "name": "Get Job Subcategories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/get_job_subcategories", "host": ["{{base_url}}"], "path": ["api", "v2", "get_job_subcategories"] },
+            "description": "Public — no auth needed. All subcategories across all categories."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"data\": [ { \"id\": \"1\", \"category_id\": \"1\", \"subcategory_name\": \"Software Development\" } ]\n}" }
+          ]
+        },
+        {
+          "name": "Get Subcategories By Category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/get_subcategories_by_category/1", "host": ["{{base_url}}"], "path": ["api", "v2", "get_subcategories_by_category", "1"] },
+            "description": "Public — no auth needed. Subcategories filtered to one category id."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"data\": []\n}" }
+          ]
+        },
+        {
+          "name": "Get Applicant Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/get_applicant_profile/1", "host": ["{{base_url}}"], "path": ["api", "v2", "get_applicant_profile", "1"] },
+            "description": "Public in the sense that it's not JWT-gated — takes user_id directly as a URL param, mirrors v1 exactly. Returns a previously-saved applicant profile (from apply_job's save_profile=1) for pre-filling future applications."
+          },
+          "response": [
+            { "name": "Found", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"data\": { \"user_id\": \"1\", \"full_name\": \"...\" }\n}" },
+            { "name": "Not Found", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"No saved profile found\"\n}" }
+          ]
+        },
+        {
+          "name": "List Job Applications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/list_job_applications/12", "host": ["{{base_url}}"], "path": ["api", "v2", "list_job_applications", "12"] },
+            "description": "Public in the sense that it's not JWT-gated — mirrors v1 exactly. Lists every applicant for a given job id (typically an employer/admin-facing view)."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"count\": 0,\n  \"data\": []\n}" }
+          ]
+        },
+        {
+          "name": "Get Offer",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/getOffer", "host": ["{{base_url}}"], "path": ["api", "v2", "getOffer"] },
+            "description": "Public — no auth needed. All offers, not scoped to any user (see Get My Offers in Profile for the current user's own offers)."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Offers loaded successfully.\",\n  \"data\": []\n}" }
+          ]
+        },
+        {
+          "name": "Get Offer Category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/getOfferCategory", "host": ["{{base_url}}"], "path": ["api", "v2", "getOfferCategory"] },
+            "description": "Public — no auth needed."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"List load successfully.\",\n  \"data\": []\n}" }
+          ]
+        },
+        {
+          "name": "Get Offer V1 (by location)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": {
+              "raw": "{{base_url}}/api/v2/getOfferV1?Latitude=25.2048&Longitude=55.2708",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v2", "getOfferV1"],
+              "query": [
+                { "key": "Latitude", "value": "25.2048", "description": "Required" },
+                { "key": "Longitude", "value": "55.2708", "description": "Required" }
+              ]
+            },
+            "description": "Public — no auth needed. Offers sorted/filtered by distance from the given coordinates. Latitude and Longitude are required query params."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"data\": []\n}" },
+            { "name": "Missing Coordinates", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Please send Latitude and Longitude.\"\n}" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reviews",
+      "item": [
+        {
+          "name": "Post Review",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{base_url}}/api/v2/post_review", "host": ["{{base_url}}"], "path": ["api", "v2", "post_review"] },
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "business_id", "value": "1", "type": "text", "description": "Required. Integer — id of the business (smart_update.id) being reviewed." },
+                { "key": "rating", "value": "5", "type": "text", "description": "Required. Integer 1-5." },
+                { "key": "review", "value": "Great service, highly recommend!", "type": "text", "description": "Optional. Free text." }
+              ]
+            },
+            "description": "Requires Authorization: Bearer <jwt>. user_id is taken from the token, not the request body. One review per user per business — a second attempt on the same business is rejected. New for v2 — the equivalent v1 endpoint has never worked (schema mismatch on a nonexistent column)."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Review added successfully\"\n}" },
+            { "name": "Already Reviewed", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"You have already reviewed this business\"\n}" },
+            { "name": "Business Not Found", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Business not found\"\n}" },
+            { "name": "Invalid Rating", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"errors\": \"<p>The Rating field must contain a number less than or equal to 5.</p>\\n\"\n}" }
+          ]
+        },
+        {
+          "name": "Get Reviews",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": { "type": "noauth" },
+            "url": { "raw": "{{base_url}}/api/v2/get_reviews/1", "host": ["{{base_url}}"], "path": ["api", "v2", "get_reviews", "1"] },
+            "description": "Public — no auth needed. Returns average rating, total review count, and the full review list for a business."
+          },
+          "response": [
+            { "name": "Success", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 1,\n  \"message\": \"Reviews fetched successfully\",\n  \"data\": {\n    \"average_rating\": 4.5,\n    \"total_reviews\": 2,\n    \"reviews\": [\n      { \"id\": \"1\", \"business_id\": \"1\", \"user_id\": \"33\", \"rating\": \"5\", \"review\": \"Great service!\", \"admin_reply\": \"\", \"created_at\": \"2026-07-16 15:53:47\", \"user_full_name\": \"\" }\n    ]\n  }\n}" },
+            { "name": "Missing Business Id", "status": "OK", "code": 200, "header": [{ "key": "Content-Type", "value": "application/json" }], "body": "{\n  \"status\": 0,\n  \"message\": \"Business id required\"\n}" }
+          ]
+        }
+      ]
+    }
+  ]
+}

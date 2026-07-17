@@ -1,0 +1,168 @@
+{
+  "info": {
+    "name": "NME - Business Browse API (v2)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "nme-business-browse-api-v1",
+    "description": "Covers the 5 endpoints behind category grid / subcategory list / business listing / search / business detail screens: List/Search Businesses, Get Service, Get Sub Service, Get Sub Service V1, Get Business. All public — no auth required.\n\nKnown gaps as of 2026-07-16, confirmed against live production responses:\n- List/Search Businesses does NOT return rating, avg_rating, is_verified, or distance — and has no Latitude/Longitude param at all.\n- Get Sub Service V1 accepts Latitude/Longitude but they currently have no effect on the response (same output with or without them) — not actually wired to distance/sorting yet.\n- image is the field name (not image_url) on List/Search Businesses and Get Service/Sub Service, already a full URL not a filename. On Get Business, note the *object itself* has a raw `image` filename plus a computed `logo_url` (full URL) — inconsistent with the other endpoints, which only expose the full-URL form.\n- Pagination uses total/page/total_pages — there is no has_more field.\n- Get Business's `photos` array does NOT include ratings/reviews — use the separate Get Reviews endpoint (business-reviews-api collection) for that.\n\nA reusable Haversine distance-calculation SQL pattern already exists elsewhere in the codebase (getOfferV1) and smart_update (the business table) does have latitude/longitude columns, so distance support is buildable into List/Search Businesses if needed — just not wired in yet.\n\n2026-07-16: Get Business (and add_business_photos/delete_business_photo) were fixed after being found broken on production — a table-name case-sensitivity bug (extraimage vs the correct extraImage) crashed on Linux/production MySQL while working fine on local Windows/MySQL. Confirm the fix is deployed before relying on this endpoint."
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost/nme-api", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "List/Search Businesses",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "auth": { "type": "noauth" },
+        "url": {
+          "raw": "{{base_url}}/api/v2/list_businesses?category_id=&subcategory_id=&term=&page=1&limit=20",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v2", "list_businesses"],
+          "query": [
+            { "key": "category_id", "value": "", "description": "Optional. Filter by main category id (from Get Service)." },
+            { "key": "subcategory_id", "value": "", "description": "Optional. Filter by subcategory id (from Get Sub Service)." },
+            { "key": "term", "value": "", "description": "Optional. Search businessName / dealWith." },
+            { "key": "page", "value": "1", "description": "Optional. Default 1." },
+            { "key": "limit", "value": "20", "description": "Optional. Default 20, capped at 50." }
+          ]
+        },
+        "description": "Public — no auth needed. Paginated business listing/search — all filters optional and combinable. Not a port of v1's GetBusinessAll/homeSearch: those do a per-business photo subquery (N+1) that times out unfiltered at full scale (19k+ businesses). This one returns only the main image (full photo gallery is on Get Business detail), so it stays fast at any scale — verified at 902 businesses (category_id=30, \"Shopping\") in ~0.35-0.75s. Only status=1 (active) businesses are returned.\n\nDoes NOT currently return: rating/avg_rating, is_verified, distance. No Latitude/Longitude param exists yet."
+      },
+      "response": [
+        {
+          "name": "Success",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"Businesses fetched successfully\",\n  \"page\": 1,\n  \"limit\": 20,\n  \"total\": 19864,\n  \"total_pages\": 993,\n  \"data\": [\n    {\n      \"id\": \"1\",\n      \"businessName\": \"Example Tailors\",\n      \"dealWith\": \"Custom suits\",\n      \"location\": \"Example City\",\n      \"mobileNumber\": \"0000000000\",\n      \"whatsappNumber\": \"0000000000\",\n      \"serviceId\": \"30\",\n      \"sub_service_id\": \"7303\",\n      \"image\": \"https://api.nmeapp.in/public/upload/master/example.jpg\",\n      \"status\": \"1\",\n      \"dt_created\": \"2026-06-02 22:26:28\",\n      \"service_name\": \"Shopping\",\n      \"subServiceName\": \"Groom Store\"\n    }\n  ]\n}"
+        },
+        {
+          "name": "Filtered by Category (category_id=30)",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"Businesses fetched successfully\",\n  \"page\": 1,\n  \"limit\": 20,\n  \"total\": 902,\n  \"total_pages\": 46,\n  \"data\": []\n}"
+        },
+        {
+          "name": "No Results",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"Businesses fetched successfully\",\n  \"page\": 1,\n  \"limit\": 20,\n  \"total\": 0,\n  \"total_pages\": 0,\n  \"data\": []\n}"
+        }
+      ]
+    },
+    {
+      "name": "Get Service (Main Categories)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "auth": { "type": "noauth" },
+        "url": { "raw": "{{base_url}}/api/v2/getService", "host": ["{{base_url}}"], "path": ["api", "v2", "getService"] },
+        "description": "Public — no auth needed. All main business categories, including a live business_count per category. Use the returned id as category_id / cat_id in List/Search Businesses and Get Sub Service."
+      },
+      "response": [
+        {
+          "name": "Success",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"data\": [\n    {\n      \"id\": \"30\",\n      \"service_name\": \"Shopping\",\n      \"image\": \"https://api.nmeapp.in/public/upload/service/example.png\",\n      \"orderBy\": \"0\",\n      \"dt_created\": \"2026-06-02 22:26:27\",\n      \"business_count\": 902\n    },\n    {\n      \"id\": \"60\",\n      \"service_name\": \"Fresh & Grocery\",\n      \"image\": \"https://api.nmeapp.in/public/upload/service/example2.png\",\n      \"orderBy\": \"0\",\n      \"dt_created\": \"2026-06-02 22:26:27\",\n      \"business_count\": 1139\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Get Sub Service (Subcategories)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "auth": { "type": "noauth" },
+        "url": { "raw": "{{base_url}}/api/v2/getSubService", "host": ["{{base_url}}"], "path": ["api", "v2", "getSubService"] },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "cat_id", "value": "30", "type": "text", "description": "Required. Main category id, from Get Service." }
+          ]
+        },
+        "description": "Public — no auth needed. Subcategories for one main category, including a live business_count per subcategory, plus a top-level urls array of category banner images."
+      },
+      "response": [
+        {
+          "name": "Success",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"message\": \"Category Data\",\n  \"data\": [\n    {\n      \"id\": \"7740\",\n      \"service_id\": \"30\",\n      \"service_name\": \"Baking Essentials\",\n      \"image\": \"https://api.nmeapp.in/public/upload/subservice/example.png\",\n      \"Thumbnailimage\": \"\",\n      \"service_type\": \"\",\n      \"featured\": \"0\",\n      \"sort_order\": \"0\",\n      \"dt_created\": \"2026-06-02 22:26:43\",\n      \"business_count\": 5\n    }\n  ],\n  \"urls\": [\n    \"https://api.nmeapp.in/public/upload/images/example_banner.png\"\n  ]\n}"
+        },
+        {
+          "name": "Missing cat_id",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"msg\": [\"cat_id is required!\"]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Get Sub Service V1 (by location)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "auth": { "type": "noauth" },
+        "url": { "raw": "{{base_url}}/api/v2/getSubServiceV1", "host": ["{{base_url}}"], "path": ["api", "v2", "getSubServiceV1"] },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "cat_id", "value": "30", "type": "text", "description": "Required." },
+            { "key": "Latitude", "value": "25.2048", "type": "text", "description": "Required." },
+            { "key": "Longitude", "value": "55.2708", "type": "text", "description": "Required." }
+          ]
+        },
+        "description": "Public — no auth needed. Same as Get Sub Service, accepts Latitude/Longitude — but verified against production: passing them does NOT currently change the response (no distance field added, no reordering). Effectively identical output to Get Sub Service today."
+      },
+      "response": [
+        {
+          "name": "Success (same shape as Get Sub Service, no distance field)",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"data\": [\n    {\n      \"id\": \"7740\",\n      \"service_id\": \"30\",\n      \"service_name\": \"Baking Essentials\",\n      \"image\": \"https://api.nmeapp.in/public/upload/subservice/example.png\",\n      \"Thumbnailimage\": \"\",\n      \"service_type\": \"\",\n      \"featured\": \"0\",\n      \"sort_order\": \"0\",\n      \"dt_created\": \"2026-06-02 22:26:43\"\n    }\n  ],\n  \"urls\": []\n}"
+        },
+        {
+          "name": "Missing Required Field",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"msg\": [\"Latitude is required!\", \"Longitude is required!\"]\n}"
+        }
+      ]
+    },
+    {
+      "name": "Get Business (Detail)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "auth": { "type": "noauth" },
+        "url": { "raw": "{{base_url}}/api/v2/get_business/1", "host": ["{{base_url}}"], "path": ["api", "v2", "get_business", "1"] },
+        "description": "Public — no auth needed. Single business by id, with its full photo gallery. Every smart_update column is included at the top level of data (not just a curated subset) plus two computed fields: logo_url (full URL, derived from the raw image filename) and photos (array). Note image itself remains a raw filename here, unlike the other Business Browse endpoints where image is already a full URL — check logo_url instead if you need a ready-to-use URL for the main image.\n\nRatings are NOT included — call Get Reviews (business-reviews-api collection) separately for average_rating/total_reviews/reviews."
+      },
+      "response": [
+        {
+          "name": "Success",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 1,\n  \"data\": {\n    \"id\": \"1\",\n    \"user_id\": \"1\",\n    \"businessName\": \"Example Tailors\",\n    \"emp_ref_id\": \"\",\n    \"dealWith\": \"Custom suits\",\n    \"fullName\": \"Example Owner\",\n    \"mobileNumber\": \"0000000000\",\n    \"whatsappNumber\": \"0000000000\",\n    \"landlineNumber\": \"\",\n    \"latitude\": \"0.000000\",\n    \"longitude\": \"0.000000\",\n    \"location\": \"Example City\",\n    \"instagram\": \"https://www.instagram.com/example/\",\n    \"serviceId\": \"30\",\n    \"sub_service_id\": \"7303\",\n    \"status\": \"1\",\n    \"image\": \"example.jpg\",\n    \"imgLimit\": \"4\",\n    \"orderBY\": \"0\",\n    \"dataCollectedBy\": \"0\",\n    \"salesman\": \"0\",\n    \"package_id\": \"\",\n    \"dataEntryBy\": \"\",\n    \"InsertedBy\": \"\",\n    \"is_paid\": \"0\",\n    \"payment_type\": \"\",\n    \"email\": \"\",\n    \"amenities\": \"\",\n    \"keywords\": \"\",\n    \"opening_time\": \"\",\n    \"closing_time\": \"\",\n    \"holiday\": \"\",\n    \"is_24x7\": \"0\",\n    \"about_company\": \"\",\n    \"social_links\": \"\",\n    \"dt_created\": \"2026-06-02 22:26:28\",\n    \"dt_updated\": \"\",\n    \"contract_from_date\": \"\",\n    \"contract_to_date\": \"\",\n    \"logo_url\": \"https://api.nmeapp.in/public/upload/master/example.jpg\",\n    \"photos\": [\n      {\n        \"id\": \"1\",\n        \"refId\": \"1\",\n        \"image\": \"example_photo.jpg\",\n        \"name\": \"Example Item\",\n        \"rate\": \"5000\",\n        \"oldRate\": \"6000\",\n        \"dt_created\": \"2022-02-16 12:19:25\",\n        \"photo_url\": \"https://api.nmeapp.in/public/upload/extraImage/example_photo.jpg\"\n      }\n    ]\n  }\n}"
+        },
+        {
+          "name": "Business Not Found",
+          "status": "OK",
+          "code": 200,
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"status\": 0,\n  \"message\": \"Business not found\"\n}"
+        }
+      ]
+    }
+  ]
+}
